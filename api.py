@@ -41,8 +41,18 @@ async def extract_text(
 ):
     """Extract text from an uploaded image."""
     try:
+        # Validate file type
+        if not file.content_type.startswith("image/"):
+            raise HTTPException(status_code=400, detail="File must be an image")
+            
         contents = await file.read()
-        image = Image.open(BytesIO(contents))
+        image_stream = BytesIO(contents)
+        image_stream.seek(0)  # Rewind the buffer
+        
+        try:
+            image = Image.open(image_stream)
+        except Exception as e:
+            raise HTTPException(status_code=400, detail="Invalid image file")
         
         if enhance_quality and image.mode != 'RGB':
             image = image.convert('RGB')
@@ -58,6 +68,8 @@ async def extract_text(
             processing_time=processing_time
         )
         
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -71,14 +83,26 @@ async def batch_extract(
     try:
         results = []
         for file in files:
+            if not file.content_type.startswith("image/"):
+                raise HTTPException(status_code=400, detail=f"File {file.filename} must be an image")
+                
             contents = await file.read()
-            image = Image.open(BytesIO(contents))
+            image_stream = BytesIO(contents)
+            image_stream.seek(0)  # Rewind the buffer
+            
+            try:
+                image = Image.open(image_stream)
+            except Exception as e:
+                raise HTTPException(status_code=400, detail=f"Invalid image file: {file.filename}")
+                
             text = ocr.extract_text(image, mode=mode, language=language)
             results.append({
                 "filename": file.filename,
                 "text": text
             })
         return {"results": results}
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
