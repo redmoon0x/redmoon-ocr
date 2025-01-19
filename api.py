@@ -42,17 +42,27 @@ async def extract_text(
     """Extract text from an uploaded image."""
     try:
         # Validate file type
-        if not file.content_type.startswith("image/"):
-            raise HTTPException(status_code=400, detail="File must be an image")
+        content_type = file.content_type or ""  # Handle None case
+        if not content_type.startswith("image/"):
+            raise HTTPException(
+                status_code=400, 
+                detail="File must be an image (JPEG, PNG, WebP, or TIFF)"
+            )
             
         contents = await file.read()
         image_stream = BytesIO(contents)
-        image_stream.seek(0)  # Rewind the buffer
+        image_stream.seek(0)
         
         try:
             image = Image.open(image_stream)
+            # Validate image format
+            if image.format not in ['JPEG', 'PNG', 'WEBP', 'TIFF']:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Unsupported image format: {image.format or 'unknown'}. Must be JPEG, PNG, WebP, or TIFF"
+                )
         except Exception as e:
-            raise HTTPException(status_code=400, detail="Invalid image file")
+            raise HTTPException(status_code=400, detail="Invalid or corrupted image file")
         
         if enhance_quality and image.mode != 'RGB':
             image = image.convert('RGB')
@@ -81,19 +91,34 @@ async def batch_extract(
 ):
     """Extract text from multiple images in batch."""
     try:
+        if len(files) > 10:
+            raise HTTPException(status_code=400, detail="Maximum 10 files per batch")
+            
         results = []
         for file in files:
-            if not file.content_type.startswith("image/"):
-                raise HTTPException(status_code=400, detail=f"File {file.filename} must be an image")
+            content_type = file.content_type or ""  # Handle None case
+            if not content_type.startswith("image/"):
+                raise HTTPException(
+                    status_code=400, 
+                    detail=f"File {file.filename} must be an image (JPEG, PNG, WebP, or TIFF)"
+                )
                 
             contents = await file.read()
             image_stream = BytesIO(contents)
-            image_stream.seek(0)  # Rewind the buffer
+            image_stream.seek(0)
             
             try:
                 image = Image.open(image_stream)
+                if image.format not in ['JPEG', 'PNG', 'WEBP', 'TIFF']:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"Unsupported image format for {file.filename}: {image.format or 'unknown'}"
+                    )
             except Exception as e:
-                raise HTTPException(status_code=400, detail=f"Invalid image file: {file.filename}")
+                raise HTTPException(
+                    status_code=400, 
+                    detail=f"Invalid or corrupted image file: {file.filename}"
+                )
                 
             text = ocr.extract_text(image, mode=mode, language=language)
             results.append({
@@ -101,6 +126,7 @@ async def batch_extract(
                 "text": text
             })
         return {"results": results}
+        
     except HTTPException:
         raise
     except Exception as e:
